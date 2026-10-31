@@ -1,0 +1,33 @@
+# Copy to models.yaml and delete any row you do not want to pay for.
+# Prices below are OpenRouter list prices in USD per million tokens on 2026-10-12.
+# They are documentation for the pilot budget, not something the runner bills locally.
+#
+# A pilot call is one fresh context. Reasoning models can spend most of the
+# budget on output tokens. Set reasoning_effort: low only as a cost sensitivity,
+# and do not pool those runs with default-effort runs.
+
+models:
+  - id: claude-sonnet-5.5
+    provider: openrouter
+    model: anthropic/claude-sonnet-5.5
+    # about $2 / $10 per million input / output tokens
+
+  - id: gpt-6.1-sol
+    provider: openrouter
+    model: openai/gpt-6.1-sol
+    # about $2 / $10
+
+  - id: gemini-3.8-flash
+    provider: openrouter
+    model: google/gemini-3.8-flash
+    # about $0.75 / $3.75
+
+  - id: grok-4.7
+    provider: openrouter
+    model: x-ai/grok-4.7
+    # about $2 / $6
+
+  - id: deepseek-v4.1-flash
+    provider: openrouter
+    model: deepseek/deepseek-v4.1-flash
+    # about $0.14 / $0.42 per million input / output tokens
