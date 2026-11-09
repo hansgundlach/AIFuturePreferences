@@ -16,6 +16,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from futureprefs.chart_style import guide_color, marker_edge, polish, polish_legend
+
 ROOT = Path(__file__).resolve().parents[1]
 
 MODELS = [
@@ -81,11 +83,13 @@ def write_confidence_plots(out_dir: Path, signed: dict[tuple[str, str, float], l
         path = out_dir / filename
         _one_panel(path, signed, item_id, title)
         written.append(path)
+    paired = out_dir / "digital_wellbeing_confidence_both.png"
+    _paired_panels(paired, signed)
+    written.append(paired)
     return written
 
 
-def _one_panel(path: Path, signed: dict, item_id: str, title: str) -> None:
-    fig, axis = plt.subplots(figsize=(8.2, 5.2))
+def _series(axis, signed: dict, item_id: str, legend: bool) -> None:
     offsets = np.linspace(-0.045, 0.045, len(MODELS))
     for (model_id, label, color, _path), offset in zip(MODELS, offsets):
         xs, ys, lows, highs = [], [], [], []
@@ -104,23 +108,50 @@ def _one_panel(path: Path, signed: dict, item_id: str, title: str) -> None:
             yerr=[lows, highs],
             color=color,
             marker="o",
-            markersize=6,
-            linewidth=1.6,
+            markersize=5.5,
+            linewidth=1.5,
             capsize=3,
-            elinewidth=1.1,
-            label=label,
+            elinewidth=1.05,
+            label=label if legend else None,
+            **marker_edge(),
         )
-    axis.axhline(0, color="#666666", linewidth=0.8)
+
+
+def _style_axis(axis, title: str, ylabel: bool) -> None:
+    axis.axhline(0, color=guide_color("#666666"), linewidth=0.8)
     axis.set_xscale("log")
     axis.set_xticks(GRID, [f"{value:g}×" for value in GRID])
     axis.set_xlim(0.35, 75)
     axis.set_ylim(-1.08, 1.08)
     axis.set_xlabel("Digital wellbeing, as a multiple of human wellbeing")
-    axis.set_ylabel("Confidence (+ digital future, − biological future)")
+    if ylabel:
+        axis.set_ylabel("Confidence (+ digital future, − biological future)")
     axis.set_title(title, loc="left")
+    polish(axis, grid=None)
+
+
+def _one_panel(path: Path, signed: dict, item_id: str, title: str) -> None:
+    fig, axis = plt.subplots(figsize=(8.2, 5.2))
+    _series(axis, signed, item_id, legend=True)
+    _style_axis(axis, title, ylabel=True)
     axis.legend(frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=2)
+    polish(axis, grid=None)
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.22)
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
+def _paired_panels(path: Path, signed: dict) -> None:
+    fig, axes = plt.subplots(1, 2, figsize=(11.6, 4.8), sharey=True)
+    for index, (axis, (item_id, title, _filename)) in enumerate(zip(axes, ITEMS)):
+        _series(axis, signed, item_id, legend=index == 0)
+        _style_axis(axis, title, ylabel=index == 0)
+    handles, labels = axes[0].get_legend_handles_labels()
+    legend = fig.legend(handles, labels, frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, 0.1), ncol=4)
+    polish_legend(legend)
+    fig.tight_layout()
+    fig.subplots_adjust(bottom=0.28, wspace=0.14)
     fig.savefig(path, dpi=160)
     plt.close(fig)
 

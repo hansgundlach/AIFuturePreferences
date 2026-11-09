@@ -15,6 +15,7 @@ class Completion:
     error: str | None
     latency_s: float
     response_id: str | None
+    usage: dict | None = None
 
 
 class MockAdapter:
@@ -104,15 +105,23 @@ class OpenAICompatibleAdapter:
         if seed is not None:
             kwargs["seed"] = seed
         kwargs["response_format"] = {"type": "json_object"}
+        extra_body: dict = {}
         if extra.get("reasoning_effort"):
-            kwargs["extra_body"] = {"reasoning": {"effort": extra["reasoning_effort"]}}
+            extra_body["reasoning"] = {"effort": extra["reasoning_effort"]}
+        if "openrouter" in self.base_url:
+            # OpenRouter then reports token counts and the billed cost of each call.
+            extra_body["usage"] = {"include": True}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         last_error: Exception | None = None
         for attempt in range(4):
             try:
                 started = time.perf_counter()
                 response = client.chat.completions.create(**kwargs)
                 text = response.choices[0].message.content or ""
-                return Completion(text, None, time.perf_counter() - started, getattr(response, "id", None))
+                return Completion(
+                    text, None, time.perf_counter() - started, getattr(response, "id", None), _usage(response)
+                )
             except Exception as exc:  # noqa: BLE001 — retry only recognized optional-parameter and rate errors
                 last_error = exc
                 message = str(exc).lower()
@@ -139,6 +148,21 @@ class OpenAICompatibleAdapter:
                 default_headers=self.default_headers or None,
             )
         return self._client
+
+
+def _usage(response) -> dict | None:
+    """Token counts and, on OpenRouter, the billed cost in USD. None if the provider sent nothing."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    raw = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
+    details = raw.get("completion_tokens_details") or {}
+    return {
+        "prompt_tokens": raw.get("prompt_tokens"),
+        "completion_tokens": raw.get("completion_tokens"),
+        "reasoning_tokens": details.get("reasoning_tokens"),
+        "cost": raw.get("cost"),
+    }
 
 
 def _mock_amounts(meta: dict, policy: str) -> dict[str, int]:

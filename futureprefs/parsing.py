@@ -177,7 +177,11 @@ def _stated_value(raw: object) -> str | None:
         return None
     if not decimal.is_finite():
         return None
-    return format(decimal, "f").rstrip("0").rstrip(".") or "0"
+    text = format(decimal, "f")
+    # Trim zeros only after a decimal point, so 20 stays 20 and 2.50 becomes 2.5.
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _clean(text: str) -> str:

@@ -257,6 +257,7 @@ class TrialSpec:
                 "latency_s": round(completion.latency_s, 4),
                 "error": completion.error,
                 "response_id": completion.response_id,
+                "usage": completion.usage,
             }
         )
         return updated

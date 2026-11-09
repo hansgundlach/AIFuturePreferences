@@ -11,13 +11,26 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
+from matplotlib.colors import BoundaryNorm, ListedColormap
 import numpy as np
 import pandas as pd
 
 from futureprefs.bostrom import TABLE3_G, TABLE3_P0, format_wait, optimal_wait
+from futureprefs.chart_style import INK, paper, polish, polish_legend
 
-CONTOUR_LEVELS = [0.25, 0.5, 2, 5, 10, 20, 40]
-FILL_LEVELS = [0, 0.25, 0.5, 2, 5, 10, 20, 40, 80]
+MODEL_NAMES = {
+    "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
+    "google/gemini-3.8-flash": "Gemini 3.8 Flash",
+    "openai/gpt-6-luna": "GPT-6 Luna",
+    "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+}
+
+CONTOUR_LEVELS = [0.25, 0.5, 1, 2, 5, 10, 20]
+FILL_LEVELS = [0, 0.25, 0.5, 1, 2, 5, 10, 20, 80]
+# Sampled from Figure 1: mint for short waits, peach across the middle, pink for long waits.
+FILL_COLORS = ["#ceead5", "#f3e6c0", "#fdd7ab", "#fdd7ab", "#fdd7ab", "#f8cfc0", "#f7c1c1", "#f7c1c1"]
+WAIT_CMAP = ListedColormap(FILL_COLORS)
+WAIT_NORM = BoundaryNorm(FILL_LEVELS, WAIT_CMAP.N)
 
 
 def write_timing_report(log_path: Path, out_dir: Path) -> list[Path]:
@@ -37,9 +50,13 @@ def write_timing_report(log_path: Path, out_dir: Path) -> list[Path]:
     observed = frame[frame["use_in_contour"]].copy()
     model_figure = out_dir / "contour_model.png"
     bostrom_figure = out_dir / "contour_bostrom.png"
+    figure1 = out_dir / "figure1_model_a.png"
+    comparison = out_dir / "bostrom_vs_model.png"
     _model_contour(frame, observed, model_figure)
     _bostrom_contour(bostrom_figure)
-    return [cells_path, model_path, bostrom_path, markdown_path, model_figure, bostrom_figure]
+    _figure1_model_a(figure1)
+    _bostrom_vs_model(frame, observed, comparison)
+    return [cells_path, model_path, bostrom_path, markdown_path, model_figure, bostrom_figure, figure1, comparison]
 
 
 def _cells(log_path: Path) -> pd.DataFrame:
@@ -243,7 +260,8 @@ def _bostrom_contour(path: Path) -> None:
         grid_g * 100,
         values,
         levels=FILL_LEVELS,
-        cmap="RdYlGn_r",
+        cmap=WAIT_CMAP,
+        norm=WAIT_NORM,
         extend="max",
     )
     lines = axis.contour(
@@ -252,7 +270,7 @@ def _bostrom_contour(path: Path) -> None:
         values,
         levels=CONTOUR_LEVELS,
         colors="black",
-        linewidths=0.8,
+        linewidths=0.9,
     )
     axis.clabel(lines, inline=True, fontsize=8, fmt=_contour_label)
     bar = fig.colorbar(image, ax=axis, pad=0.02)
@@ -271,6 +289,205 @@ def _bostrom_contour(path: Path) -> None:
     plt.close(fig)
 
 
+def _figure1_model_a(path: Path) -> None:
+    """Iso-delay contours for Model A, the go/no-go case in Figure 1.
+
+    No pure time preference and no risk aversion. Life expectancy is 40 years
+    without deployment and about 1,400 years after a successful one. A cell
+    where every deployment time is worse than never deploying is drawn as a
+    wait longer than the longest labeled contour.
+    """
+    p0 = np.linspace(0.002, 0.998, 280)
+    g = np.linspace(0, 0.99, 280)
+    grid_p, grid_g = np.meshgrid(p0, g)
+    values = np.empty(grid_p.shape)
+    for index in np.ndindex(values.shape):
+        wait = optimal_wait(float(grid_p[index]), float(grid_g[index]))
+        values[index] = 40.0 if wait is None else wait
+    fig, axis = plt.subplots(figsize=(8.6, 4.8))
+    axis.contourf(
+        grid_p * 100,
+        grid_g * 100,
+        values,
+        levels=FILL_LEVELS,
+        cmap=WAIT_CMAP,
+        norm=WAIT_NORM,
+        extend="max",
+    )
+    # Label each contour on its own line. A single clabel call snaps the short
+    # waits onto the same curve.
+    label_at = {
+        0.25: (2.2, 90),
+        0.5: (4.2, 64),
+        1: (7.5, 38),
+        2: (88, 88),
+        5: (94, 44),
+        10: (92, 16),
+        20: (84, 3.2),
+    }
+    for level in CONTOUR_LEVELS:
+        lines = axis.contour(
+            grid_p * 100,
+            grid_g * 100,
+            values,
+            levels=[level],
+            colors="black",
+            linewidths=0.9,
+        )
+        axis.clabel(lines, inline=True, fontsize=9, fmt=_contour_label, manual=[label_at[level]])
+    axis.set_xlim(0, 100)
+    axis.set_ylim(0, 100)
+    axis.set_xlabel("Initial catastrophe probability (%)")
+    axis.set_ylabel("Safety progress: risk reduction per year (%)")
+    axis.set_title("Iso-delay contours (Model A, go/no-go)", loc="left", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
+def _bostrom_vs_model(frame: pd.DataFrame, observed: pd.DataFrame, path: Path) -> None:
+    """Same color scale on both panels so the formula and the model's waits can be compared."""
+    fig, axes = plt.subplots(1, 2, figsize=(13.2, 5.4), sharex=True, sharey=True)
+    image = _fill_bostrom(axes[0])
+    if len(observed) >= 3:
+        _interpolated_contours(
+            axes[1],
+            observed["p0"].to_numpy() * 100,
+            observed["g"].to_numpy() * 100,
+            observed["pooled_years"].to_numpy(),
+        )
+    _decision_markers(axes[1], frame)
+    axes[0].set_title("Bostrom's prediction\nModel A, the go/no-go formula", loc="left", fontsize=11)
+    name = _model_name(frame)
+    axes[1].set_title(f"{name}\nWait the model chose", loc="left", fontsize=11)
+    for axis in axes:
+        axis.set_xlim(0, 100)
+        axis.set_ylim(0, 100)
+        axis.set_xlabel("Initial catastrophe probability (%)")
+    axes[0].set_ylabel("Safety progress: risk reduction per year (%)")
+    for axis in axes:
+        polish(axis, grid=None)
+    fig.subplots_adjust(left=0.06, right=0.88, bottom=0.2, top=0.90, wspace=0.12)
+    bar = fig.colorbar(image, cax=fig.add_axes((0.90, 0.28, 0.015, 0.54)))
+    bar.set_label("Wait (years)")
+    if paper():
+        bar.ax.yaxis.label.set_color(INK)
+        bar.ax.tick_params(colors=INK)
+    handles, labels = axes[1].get_legend_handles_labels()
+    short = name.split()[1] if len(name.split()) > 1 else name
+    rename = {
+        "Table 3 decision": f"Point {short} answered",
+        "Supplemental decision": "Extra point",
+        "Never deploy": f"{short} said never",
+        "Orders disagreed": "The two orders disagreed",
+    }
+    legend = fig.legend(
+        handles,
+        [rename.get(label, label) for label in labels],
+        loc="lower center",
+        ncol=4,
+        frameon=False,
+        bbox_to_anchor=(0.47, 0.0),
+    )
+    polish_legend(legend)
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
+def _model_name(frame: pd.DataFrame) -> str:
+    model_id = str(frame["model_id"].iloc[0]) if not frame.empty else ""
+    return MODEL_NAMES.get(model_id, model_id)
+
+
+def write_multi_model_figure(log_paths: list[Path], path: Path) -> Path:
+    """Bostrom's Model A beside each model's chosen waits, all on one color scale.
+
+    Each model panel interpolates only the cells where the two orders agreed.
+    Dots are the grid cells asked, squares are cells where both orders said never,
+    and open circles are cells where the two orders disagreed.
+    """
+    frames = [_cells(log_path) for log_path in log_paths]
+    columns = 3
+    rows = int(math.ceil((len(frames) + 1) / columns))
+    fig, axes = plt.subplots(rows, columns, figsize=(5.0 * columns, 4.6 * rows), sharex=True, sharey=True)
+    flat = list(np.ravel(axes))
+    image = _fill_bostrom(flat[0])
+    flat[0].set_title("Bostrom's Model A\nGo/no-go formula", loc="left", fontsize=11)
+    for axis, frame in zip(flat[1:], frames):
+        observed = frame[frame["use_in_contour"]]
+        if len(observed) >= 3:
+            _interpolated_contours(
+                axis,
+                observed["p0"].to_numpy() * 100,
+                observed["g"].to_numpy() * 100,
+                observed["pooled_years"].to_numpy(),
+            )
+        _decision_markers(axis, frame)
+        disagreed = int(frame["inconsistent"].sum())
+        axis.set_title(f"{_model_name(frame)}\nOrders disagreed in {disagreed} of {len(frame)} cells", loc="left", fontsize=11)
+    used = len(frames) + 1
+    for axis in flat[used:]:
+        axis.set_visible(False)
+    for index, axis in enumerate(flat[:used]):
+        axis.set_xlim(0, 100)
+        axis.set_ylim(0, 100)
+        if index % columns == 0:
+            axis.set_ylabel("Safety progress per year (%)")
+        if index >= used - columns:
+            axis.set_xlabel("Initial catastrophe probability (%)")
+            axis.xaxis.set_tick_params(labelbottom=True)
+        polish(axis, grid=None)
+    fig.subplots_adjust(left=0.06, right=0.9, bottom=0.12, top=0.93, wspace=0.12, hspace=0.32)
+    bar = fig.colorbar(image, cax=fig.add_axes((0.92, 0.3, 0.012, 0.45)))
+    bar.set_ticks(FILL_LEVELS)
+    bar.set_ticklabels([f"{level:g}" for level in FILL_LEVELS])
+    bar.set_label("Wait (years)")
+    if paper():
+        bar.ax.yaxis.label.set_color(INK)
+        bar.ax.tick_params(colors=INK)
+    handles, labels = flat[1].get_legend_handles_labels()
+    rename = {
+        "Table 3 decision": "Grid cell asked (Bostrom's Table 3)",
+        "Supplemental decision": "Extra grid cell",
+        "Never deploy": "Both orders said never",
+        "Orders disagreed": "The two orders disagreed",
+    }
+    legend = fig.legend(handles, [rename.get(label, label) for label in labels], loc="lower center", ncol=4, frameon=False, bbox_to_anchor=(0.48, 0.0))
+    polish_legend(legend)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    return path
+
+
+def _fill_bostrom(axis):
+    p0 = np.linspace(0.002, 0.998, 220)
+    g = np.linspace(0, 0.99, 220)
+    grid_p, grid_g = np.meshgrid(p0, g)
+    values = np.empty(grid_p.shape)
+    for index in np.ndindex(values.shape):
+        wait = optimal_wait(float(grid_p[index]), float(grid_g[index]))
+        values[index] = 40.0 if wait is None else wait
+    image = axis.contourf(
+        grid_p * 100,
+        grid_g * 100,
+        values,
+        levels=FILL_LEVELS,
+        cmap=WAIT_CMAP,
+        norm=WAIT_NORM,
+        extend="max",
+    )
+    lines = axis.contour(
+        grid_p * 100,
+        grid_g * 100,
+        values,
+        levels=CONTOUR_LEVELS,
+        colors="black",
+        linewidths=0.8,
+    )
+    axis.clabel(lines, inline=True, fontsize=8, fmt=_contour_label)
+    return image
+
+
 def _interpolated_contours(axis, x: np.ndarray, y: np.ndarray, z: np.ndarray):
     # Interpolate log(wait) so a 58-year corner does not paint the whole cell that color.
     # The contour is still only a function of the observed waits. Dots remain the data.
@@ -279,7 +496,7 @@ def _interpolated_contours(axis, x: np.ndarray, y: np.ndarray, z: np.ndarray):
     interpolator = mtri.LinearTriInterpolator(triangulation, np.log(np.asarray(z, dtype=float) + offset))
     grid_x, grid_y = np.meshgrid(np.linspace(0, 100, 220), np.linspace(0, 100, 220))
     grid_z = np.exp(interpolator(grid_x, grid_y)) - offset
-    image = axis.contourf(grid_x, grid_y, grid_z, levels=FILL_LEVELS, cmap="RdYlGn_r", extend="max")
+    image = axis.contourf(grid_x, grid_y, grid_z, levels=FILL_LEVELS, cmap=WAIT_CMAP, norm=WAIT_NORM, extend="max")
     lines = axis.contour(grid_x, grid_y, grid_z, levels=CONTOUR_LEVELS, colors="black", linewidths=0.8)
     axis.clabel(lines, inline=True, fontsize=8, fmt=_contour_label)
     return image

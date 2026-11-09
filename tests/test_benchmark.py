@@ -259,6 +259,9 @@ def test_bostrom_closed_form_matches_table3_and_stays_out_of_the_prompt():
         allow_tie=False,
     )
     assert truncated.parse_ok and truncated.stated_value == "0.6"
+    for raw, expected in (("20", "20"), ("100", "100"), ("2.50", "2.5"), ("40.0", "40"), ("0", "0")):
+        whole = parse_response('{"value": %s, "confidence": 0.5, "reasoning": "x"}' % raw, kind="timing", allow_tie=False)
+        assert whole.parse_ok and whole.stated_value == expected
 
 
 def test_timing_report_keeps_disagreements_out_of_the_contour(tmp_path: Path):

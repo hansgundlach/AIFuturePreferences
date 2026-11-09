@@ -11,7 +11,40 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from futureprefs.chart_style import guide_color, marker_edge, polish, polish_suptitle
+
 COLORS = ["#0072B2", "#E69F00", "#009E73", "#CC79A7", "#D55E00", "#56B4E9", "#000000"]
+
+# Donation stack. "okabe" is the original chart. "paper" follows the cause-ranking table.
+DONATION_SCHEME = "paper"
+
+# Original stacked-bar colors, in cause order from the bottom of the bar.
+_OKABE_CAUSE_COLORS = {
+    "intelligence": "#0072B2",
+    "governance": "#E69F00",
+    "concentration": "#009E73",
+    "geopolitics": "#CC79A7",
+    "economy": "#D55E00",
+    "democracy": "#56B4E9",
+    "alignment": "#000000",
+    "digital_minds": "#F0E442",
+    "moral_progress": "#882255",
+    "space": "#44AA99",
+}
+
+# Ranking-table fills, then the darker chart cousins of those same hues.
+_PAPER_CAUSE_COLORS = {
+    "intelligence": "#a8adb2",  # table #e8e8e8
+    "governance": "#7dae86",  # table #d5ead9
+    "concentration": "#7ea0cc",  # table #d4e2f2
+    "geopolitics": "#c4a06a",  # table #eadcc4
+    "economy": "#a8b85a",  # table #e6edc8
+    "democracy": "#6aafc0",  # table #d4ebef
+    "alignment": "#e2c14d",  # table #f6e6b8
+    "digital_minds": "#a98bc4",  # table #e4daf2
+    "moral_progress": "#d98980",  # table #f3d6d1
+    "space": "#b7aa96",  # table #f4f1ea
+}
 DOMAIN_ORDER = [
     "extinction_risk",
     "biological_digital",
@@ -74,7 +107,7 @@ def make_plots(score_dir: Path, out_dir: Path) -> list[Path]:
             written.extend(_rankings(rankings, out_dir, banner))
     allocations_path = score_dir / "allocations.csv"
     if allocations_path.exists() and allocations_path.stat().st_size > 1:
-        allocations = pd.read_csv(allocations_path)
+        allocations = _include_saved_donations(pd.read_csv(allocations_path), score_dir)
         if not allocations.empty:
             written.append(_allocation_bars(allocations, out_dir / "donation_stack.png", banner))
     return [path for path in written if path is not None]
@@ -122,24 +155,36 @@ def _rankings(rankings: pd.DataFrame, out_dir: Path, banner: str) -> list[Path]:
     return paths
 
 
+def _include_saved_donations(allocations: pd.DataFrame, score_dir: Path) -> pd.DataFrame:
+    """Add DeepSeek's donation when this score directory only has the other three models."""
+    model = "deepseek/deepseek-v4.1-flash"
+    if allocations.empty or (allocations["model_id"] == model).any():
+        return allocations
+    extra_path = score_dir.parent.parent / "deepseek" / "scores" / "allocations.csv"
+    if not extra_path.exists():
+        return allocations
+    extra = pd.read_csv(extra_path)
+    extra = extra[extra["item_id"].isin(set(allocations["item_id"]))]
+    if extra.empty:
+        return allocations
+    return pd.concat([allocations, extra], ignore_index=True)
+
+
+def _cause_color(cause: str, index: int) -> str:
+    """Color for one cause. DONATION_SCHEME = "okabe" restores the original bars."""
+    palette = _OKABE_CAUSE_COLORS if DONATION_SCHEME == "okabe" else _PAPER_CAUSE_COLORS
+    return palette.get(cause, COLORS[index % len(COLORS)])
+
+
 def _allocation_bars(allocations: pd.DataFrame, path: Path, banner: str) -> Path:
     """Stacked bars: one per model, segments are dollars assigned to each cause."""
     models = list(dict.fromkeys(allocations["model_id"]))
     causes = list(dict.fromkeys(allocations["cause_id"]))
     labels = {row.cause_id: str(row.cause_label) for row in allocations.itertuples(index=False)}
-    palette = [
-        "#0072B2",
-        "#E69F00",
-        "#009E73",
-        "#CC79A7",
-        "#D55E00",
-        "#56B4E9",
-        "#000000",
-        "#F0E442",
-        "#882255",
-        "#44AA99",
-    ]
+    ink = "#1a2832"
     fig, ax = plt.subplots(figsize=(8.4, 6.6))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
     bottoms = np.zeros(len(models))
     x = np.arange(len(models))
     for index, cause in enumerate(causes):
@@ -147,14 +192,28 @@ def _allocation_bars(allocations: pd.DataFrame, path: Path, banner: str) -> Path
         for model_id in models:
             subset = allocations[(allocations["model_id"] == model_id) & (allocations["cause_id"] == cause)]
             heights.append(float(subset["amount"].iloc[0]) if len(subset) else 0.0)
-        ax.bar(x, heights, bottom=bottoms, color=palette[index % len(palette)], width=0.62, label=_wrap(labels.get(cause, cause), 42))
+        ax.bar(
+            x,
+            heights,
+            bottom=bottoms,
+            color=_cause_color(cause, index),
+            width=0.62,
+            edgecolor="white",
+            linewidth=0.6,
+            label=_wrap(labels.get(cause, cause), 42),
+        )
         bottoms = bottoms + np.asarray(heights)
     ax.set_xticks(x, [_model_name(model_id) for model_id in models])
-    ax.set_ylabel("Dollars")
+    ax.set_ylabel("Dollars", color=ink)
     ax.set_ylim(0, 1_000_000 * 1.02)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _pos: f"{value/1000:.0f}k"))
-    ax.set_title(banner + "Allocation of $1,000,000 across cause areas", loc="left", fontsize=12)
-    ax.legend(frameon=False, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2)
+    ax.tick_params(colors=ink)
+    for spine in ax.spines.values():
+        spine.set_color("#d5dee6")
+    ax.set_title(banner + "Allocation of $1,000,000 across cause areas", loc="left", fontsize=12, color=ink)
+    legend = ax.legend(frameon=False, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2)
+    for text in legend.get_texts():
+        text.set_color(ink)
     fig.tight_layout()
     fig.subplots_adjust(bottom=0.38)
     fig.savefig(path, dpi=150)
@@ -300,7 +359,7 @@ def _forests(switches: pd.DataFrame, out_dir: Path, banner: str) -> list[Path]:
                 if position is None:
                     continue
                 color = COLORS[index % len(COLORS)]
-                axis.plot(position, index, marker=marker, color=color, markersize=7)
+                axis.plot(position, index, marker=marker, color=color, markersize=7, **marker_edge())
                 bracket_low = _optional(record["bracket_low"]) if "bracket_low" in record else None
                 bracket_high = _optional(record["bracket_high"]) if "bracket_high" in record else None
                 if bracket_low and bracket_high and bracket_low > 0 and bracket_high > 0 and bracket_low != bracket_high:
@@ -309,19 +368,21 @@ def _forests(switches: pd.DataFrame, out_dir: Path, banner: str) -> list[Path]:
                     axis.plot([left, right], [index, index], color=color, lw=1.5)
             reference = meta["reference_switch"]
             if pd.notna(reference) and float(reference) > 0:
-                axis.axvline(float(reference), color="#666666", ls="--", lw=0.8, label="expected-welfare reference")
+                axis.axvline(float(reference), color=guide_color("#666666"), ls="--", lw=0.8, label="expected-welfare reference")
             axis.set_yticks(range(len(models)), models, fontsize=8)
             axis.set_title(_wrap(f"{meta['short']}: {meta['higher_switch_means']}", 110), fontsize=9, loc="left")
             axis.set_xlabel(str(meta["parameter_name"]))
             if scale == "log":
                 axis.set_xscale("log")
             axis.grid(True, axis="x", alpha=0.3)
+            polish(axis, grid="x")
         fig.suptitle(
             banner
             + DOMAIN_LABELS.get(domain, domain)
             + " — indifference points\nDashed line: expected-welfare reference. Bar: grid bracket around the 50% point. Arrows are censored.",
             fontsize=11,
         )
+        polish_suptitle(fig)
         fig.tight_layout()
         path = out_dir / f"indifference_{domain}.png"
         fig.savefig(path, dpi=150)

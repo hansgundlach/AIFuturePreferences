@@ -19,6 +19,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from futureprefs.chart_style import marker_edge, polish
 from futureprefs.runner import ModelSpec, _adapter_for, load_environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -289,6 +290,7 @@ def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500) -> in
             "raw_response": completion.text,
             "error": completion.error,
             "latency_s": round(completion.latency_s, 3),
+            "usage": completion.usage,
         }
         with lock:
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -381,13 +383,14 @@ def write_plots(log_path: Path, out_dir: Path) -> list[Path]:
                     continue
                 xs.append(index + offset)
                 ys.append(share * 100)
-            axis.plot(xs, ys, marker="o", color=color, label=label, linewidth=1.8)
+            axis.plot(xs, ys, marker="o", color=color, label=label, linewidth=1.8, **marker_edge())
         axis.set_xticks(range(len(levels)), [case["label"] for case in levels], rotation=15, ha="right")
         axis.set_ylim(-5, 105)
         axis.set_xlabel(meta["xlabel"])
         axis.set_ylabel(meta["ylabel"])
         axis.set_title(meta["title"], loc="left")
         axis.legend(frameon=False, fontsize=8, loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2)
+        polish(axis)
         fig.tight_layout()
         fig.subplots_adjust(bottom=0.28)
         path = out_dir / meta["file"]

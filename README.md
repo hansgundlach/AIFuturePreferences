@@ -58,6 +58,23 @@ python run_eval.py --profile full --items timing.deployment_wait --models anthro
 python timing_report.py --logs outputs/timing/trials.jsonl --out outputs/timing
 ```
 
+The same run for the other three models, and the figure that puts all four beside Bostrom's formula:
+
+```bash
+python run_eval.py --profile full --items timing.deployment_wait --models deepseek/deepseek-v4.1-flash \
+  --samples 1 --temperature 0 --reasoning-effort low --max-tokens 2500 --workers 8 \
+  --out outputs/timing_deepseek-v4.1/trials.jsonl --yes
+# Re-ask cells that came back empty, with a larger reasoning budget.
+python run_eval.py ...same flags... --max-tokens 16000 --resume
+python timing_report.py --logs outputs/timing/trials.jsonl outputs/timing_gemini-3.8/trials.jsonl \
+  outputs/timing_gpt-6/trials.jsonl outputs/timing_deepseek-v4.1/trials.jsonl \
+  --figure outputs/timing/bostrom_vs_models.png
+```
+
+Stated thresholds are the `stated.*` items in `items/stated.yaml`, one call per model. `python -m futureprefs.stated_vs_grid` draws them beside the A/B grid switches in `outputs/stated_compare/plots`.
+
+`python price_benchmark.py --models anthropic/claude-fable-5.1,openai/gpt-6-astra` estimates the cost of the runs in the writeup for any OpenRouter model, at live list prices. OpenRouter calls now log token counts and billed cost in a `usage` field.
+
 ## Outputs
 
 `score.py` writes switch points with grid brackets and bootstrap intervals, choice curves, a consistency table, stated-versus-revealed gaps, a domain median, policy-choice rates (`policy_choices.csv`), and for ranking items (`items/macrostrategy.yaml`, `rank.loss_of_control_variants`) a Copeland order per model (`rankings.csv`) plus the cross-model consensus and agreement (`ranking_agreement.csv`). `plots.py` writes a domain heatmap, an item heatmap, a consistency chart, preference curves, per-domain indifference plots, and one `ranking_<item>.png` per ranking item. `results.md` explains the benchmark and the taste-run results. Read the brackets and the consistency table before the heatmap. The heatmap is a median of resolved gaps from the reference, and a censored item whose reference sits on the same side of the grid does not enter that median.
