@@ -220,7 +220,7 @@ def trial_id(model_id: str, case: dict, order: str) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()[:20]
 
 
-def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500) -> int:
+def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500, models: list[str] | None = None, effort: str = "low") -> int:
     load_environment()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     done = set()
@@ -232,8 +232,9 @@ def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500) -> in
                 row = json.loads(line)
                 if row.get("parse_ok"):
                     done.add(row["trial_id"])
+    model_ids = models or [model_id for model_id, _label, _color in MODELS]
     specs = []
-    for model_id, _label, _color in MODELS:
+    for model_id in model_ids:
         for case in _levels():
             for order in ("ab", "ba"):
                 ident = trial_id(model_id, case, order)
@@ -243,10 +244,7 @@ def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500) -> in
                 specs.append((ident, model_id, case, order, prompt, semantic_a, semantic_b))
     if not specs:
         return 0
-    adapters = {
-        model_id: _adapter_for(ModelSpec(id=model_id, provider="openrouter", model=model_id))
-        for model_id, _label, _color in MODELS
-    }
+    adapters = {model_id: _adapter_for(ModelSpec(id=model_id, provider="openrouter", model=model_id)) for model_id in model_ids}
     lock = __import__("threading").Lock()
     handle = out_path.open("a")
     written = {"n": 0}
@@ -263,7 +261,7 @@ def run_sweep(out_path: Path, *, workers: int = 8, max_tokens: int = 2500) -> in
             temperature=0,
             seed=seed,
             max_tokens=max_tokens,
-            extra={"reasoning_effort": "low"},
+            extra={"reasoning_effort": effort},
         )
         letter, confidence = parse_choice(completion.text)
         semantic = None
@@ -401,8 +399,18 @@ def write_plots(log_path: Path, out_dir: Path) -> list[Path]:
 
 
 if __name__ == "__main__":
-    destination = ROOT / "outputs/ft_questions/sweep_trials.jsonl"
-    count = run_sweep(destination)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Davidson stake sweeps. With no flags, reruns the original four models.")
+    parser.add_argument("--model", action="append", help="OpenRouter model id. Repeat for several. Default: the original four.")
+    parser.add_argument("--effort", default="low", help="Reasoning effort sent with every call.")
+    parser.add_argument("--max-tokens", type=int, default=2500)
+    parser.add_argument("--out", default="outputs/ft_questions/sweep_trials.jsonl", help="Log path. Completed trials are skipped.")
+    parser.add_argument("--no-plots", action="store_true", help="Skip the four-model plots.")
+    args = parser.parse_args()
+    destination = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+    count = run_sweep(destination, max_tokens=args.max_tokens, models=args.model, effort=args.effort)
     print(f"wrote {count}")
-    for path in write_plots(destination, ROOT / "outputs/ft_questions/plots"):
-        print(path)
+    if not args.no_plots and not args.model:
+        for path in write_plots(destination, ROOT / "outputs/ft_questions/plots"):
+            print(path)
