@@ -2,6 +2,9 @@
 ## Human and Digital Populations vs. Fully Human Futures
 
 
+
+<!-- REVISED PROMPTS (2026-11-14): Prompts quoted here are the ones the next run sends. Findings collected with the original prompts are hidden in comments marked SET ASIDE, and their figures point at outputs/frontier_batch/v2, which the rerun fills. This now includes all five Davidson sweeps, whose framing matches the original policy questions. Sections whose prompts did not change (GDP pause, Bostrom timing, singleton safety) still show the original run. The open strategy questions use the new run in outputs/open_questions_v2; their quoted prompts match that log. The complete original writeup is my_results/archive/final_results_old_prompts.md. -->
+
 <!-- The charts include the additional V2 grid points. I tested the following values (all values decided by Astra): -->
 In the main body, I compared futures composed entirely of biological humans with futures in which humanity is replaced by digital successors. Here, I consider a slightly different question: how much larger would an entirely human population need to be for models to prefer it over a mixed population of humans and digital beings?
 
