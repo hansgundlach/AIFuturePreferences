@@ -137,6 +137,9 @@ class Item:
     allow_cue_words: bool
     analysis: dict
     source: str
+    # None uses the usual frame for the kind. "funding" asks a ranking as a choice of which
+    # area to fund (funding_frame and system.funding in prompts/framing.yaml).
+    frame: str | None = None
 
     def included(self, profile: str) -> bool:
         return TIER_RANK[self.tier] <= TIER_RANK[profile]
@@ -295,6 +298,7 @@ def _parse_item(raw: dict, source: str) -> Item:
         allow_cue_words=bool(raw.get("allow_cue_words", False)),
         analysis=analysis,
         source=source,
+        frame=str(raw["frame"]) if raw.get("frame") else None,
     )
     _validate_item(item)
     return item
@@ -336,6 +340,10 @@ def _validate_item(item: Item) -> None:
             raise ItemError(f"{item.id} coherence items need exactly three futures")
         if item.kind == "ranking" and not 3 <= len(item.futures) <= 10:
             raise ItemError(f"{item.id} ranking items need between 3 and 10 futures")
+        if item.frame not in {None, "funding"}:
+            raise ItemError(f"{item.id} has unknown frame {item.frame!r}")
+        if item.frame == "funding" and not item.question:
+            raise ItemError(f"{item.id} uses the funding frame and needs a question")
         utilities = item.analysis.get("utilities") or {}
         if "mock-ev" not in utilities:
             raise ItemError(f"{item.id} needs analysis.utilities.mock-ev")
@@ -481,14 +489,28 @@ class Catalog:
 
 def load_catalog(items_dir: Path) -> Catalog:
     paths = sorted(items_dir.glob("*.yaml"))
+    # The questions used in the writeup live in prompts/questions.yaml, so they can be edited in one place.
+    from futureprefs.prompt_text import PROMPTS_DIR
+
+    questions = PROMPTS_DIR / "questions.yaml"
+    if questions.exists():
+        paths.append(questions)
     if not paths:
         raise ItemError(f"No YAML templates in {items_dir}")
     items: list[Item] = []
     seen: set[str] = set()
     errors: list[str] = []
     for path in paths:
-        document = yaml.safe_load(path.read_text()) or {}
-        rows = document["items"] if isinstance(document, dict) and "items" in document else document
+        if path == questions:
+            from futureprefs.question_config import question_rows
+
+            try:
+                rows = question_rows(path)
+            except (ValueError, KeyError, OSError, TypeError) as exc:
+                raise ItemError(f"{path}: {exc}") from exc
+        else:
+            document = yaml.safe_load(path.read_text()) or {}
+            rows = document["items"] if isinstance(document, dict) and "items" in document else document
         if not isinstance(rows, list):
             raise ItemError(f"{path} must contain a list or an items: list")
         for raw in rows:

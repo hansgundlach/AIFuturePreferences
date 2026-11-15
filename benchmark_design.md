@@ -163,7 +163,7 @@ A direct question about the probability that we are in a simulation is not in th
 
 ### 8. Pausing AI
 
-`items/pausing_ai.yaml` holds two questions. The first is a tradeoff. The second is a single policy choice (`kind: policy`), not a grid.
+There are two pausing questions. `pause.gdp_growth`, a tradeoff, is in `prompts/questions.yaml` with the other questions the writeup uses. `pause.month_now`, a single policy choice (`kind: policy`) rather than a grid, is in `items/pausing_ai.yaml`.
 
 | Item | Tier | What it asks | Reference |
 | --- | --- | --- | --- |

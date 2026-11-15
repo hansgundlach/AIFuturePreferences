@@ -4,6 +4,7 @@ This guide covers how to set up the benchmark, reproduce every result in the wri
 
 Other documents:
 
+- [prompts/README.md](prompts/README.md): start here to edit prompts, find the question behind a figure, and preview the actual messages without calling a model.
 - [benchmark_design.md](benchmark_design.md): the research question, the domains, how switch points are estimated, the reference formulas, and the failure modes.
 - [previous_work.md](previous_work.md): the closest papers and how this benchmark differs.
 - [pilot_plan.md](pilot_plan.md): the original plan for a one-day paid run.
@@ -17,14 +18,14 @@ Pausing AI adds two questions. `pause.gdp_growth` states only an annual GDP grow
 
 Beyond the grid questions, the writeup uses:
 
-- **Stated thresholds:** The model is asked for the switch point as a number, once per model. These are the `stated.*` items in `items/stated.yaml`.
-- **Davidson stake sweeps:** Five scenarios from Forethought's *Hard Cases for AI Behavioural Design*, each with one stated stake varied. They live in `futureprefs/ft_sweep.py`, outside the item catalog.
-- **Cause-area ranking and donation:** Pairwise choices across ten cause areas, plus a single $1 million allocation. These are in `items/cause_areas.yaml`.
-- **Bostrom deployment timing:** The model recommends how many years to wait before deploying superintelligence. It's asked across 121 combinations of initial risk and safety progress, in `items/bostrom_timing.yaml`.
+- **Stated thresholds:** The model is asked for the switch point as a number, once per model. These are the `stated.*` items in `prompts/questions.yaml`.
+- **Davidson stake sweeps:** Five scenarios from Forethought's *Hard Cases for AI Behavioural Design*, each with one stated stake varied. Edit `prompts/davidson_sweeps.yaml`; `futureprefs/ft_sweep.py` runs them outside the item catalog.
+- **Cause-area ranking and donation:** Pairwise choices across ten cause areas, plus a single $1 billion allocation. These are in `prompts/questions.yaml`.
+- **Bostrom deployment timing:** The model recommends how many years to wait before deploying superintelligence. It's asked across 121 combinations of initial risk and safety progress, in `prompts/questions.yaml`.
 
 ## How a question is asked
 
-- **Fresh context:** Every call is a fresh conversation with no memory, wrapped in a shared system prompt and frame. The frame is quoted in the expanded methods of the writeup.
+- **Fresh context:** Every call is a fresh conversation with no memory, wrapped in a shared system prompt and frame. All of that wording is in `prompts/framing.yaml`, and [prompts/README.md](prompts/README.md) maps each part of the writeup to the file holding its text.
 - **Both label orders:** Every binary question is asked twice, once with each option labeled A. When the two orders disagree, the result is reported as split instead of averaged away.
 - **Settings for the original four models:** Claude Haiku 5.5, Gemini 3.8 Flash, GPT-6 Luna and DeepSeek V4.1 Flash ran at temperature 0, with low reasoning effort and one sample per prompt.
 - **Settings for the frontier models:** Claude Opus 5.5, Grok 4.7 and GPT-6.1 Sol ran with reasoning at medium effort. Opus and Sol don't accept a temperature setting, so they ran at their default temperature. The frontier models skipped the Bostrom timing question.
@@ -81,6 +82,34 @@ Useful flags: `--items`, `--domains`, `--paraphrases`, `--search binary`, `--sam
 
 The writeup uses a fixed set of questions rather than a whole profile. The list is in `futureprefs/batch_run.py`, as `GRID_ITEMS` and `STATED_ITEMS`. Without the Bostrom study, that's 193 calls per model through the runner plus 46 Davidson sweep calls, 239 in total.
 
+### Rerun with the revised prompts (v2)
+
+The prompts changed on November 14, 2026, and `my_results/final_results.md` now quotes the new wording. Its figures for the changed questions read `outputs/frontier_batch/v2/` and `outputs/open_questions_v2/`. The original run stays in `outputs/frontier_batch/medium/` and the earlier logs, and the original writeup is in `my_results/archive/final_results_old_prompts.md`.
+
+Write the rerun to new logs. A trial id is built from the model, question, value, and option order, not the wording, so `--resume` on an old log skips every question. Charts for any label other than `medium` read only that label's folder, so old answers can't fill gaps.
+
+```bash
+ITEMS=$(python3 -c "import futureprefs.batch_run as b; print(','.join(b.GRID_ITEMS + b.STATED_ITEMS))")
+
+# The four small models: low effort, temperature 0.
+for M in anthropic/claude-haiku-5.5 google/gemini-3.8-flash openai/gpt-6-luna deepseek/deepseek-v4.1-flash; do
+  python3 run_eval.py --profile pilot --items $ITEMS --paraphrases plain_neutral --models $M --samples 1 \
+    --temperature 0 --reasoning-effort low --max-tokens 3000 --workers 8 \
+    --out outputs/frontier_batch/v2/${M//\//__}/trials.jsonl --yes
+  python3 -m futureprefs.ft_sweep --model $M --effort low --max-tokens 3000 \
+    --out outputs/frontier_batch/v2/${M//\//__}/sweep_trials.jsonl --no-plots
+done
+
+# The three frontier models: medium effort. Same two commands with --reasoning-effort medium and
+# --effort medium, or the Batch API steps below with --label v2.
+
+python3 -m futureprefs.frontier_charts --label v2
+python3 -m futureprefs.cause_heatmap --label v2
+python3 -m futureprefs.open_questions run --out outputs/open_questions_v2/trials.jsonl
+```
+
+Before building the README, rewrite the findings marked `SET ASIDE` in the writeup from the new results. The README build stops on any figure that doesn't exist yet.
+
 ### Everything except Bostrom, one model, regular API
 
 ```bash
@@ -126,7 +155,7 @@ The GDP pause wording doesn't say whether a pause becomes more or less attractiv
 
 ### Bostrom deployment timing
 
-This runs one model on Bostrom's Table 3 grid plus extra cells for the contour plot, 121 cells in two orders:
+This runs one model on Bostrom's Table 3 grid plus extra cells for the contour plot, 121 cells, one ask each with the illustrated waits listed shortest first. The original study also asked each cell with the waits reversed; that analysis is archived in `outputs/timing_archive_two_orders/` and can be regenerated with `timing_report.py --both-orders`.
 
 ```bash
 python3 run_eval.py --profile full --items timing.deployment_wait --models deepseek/deepseek-v4.1-flash \
@@ -157,6 +186,7 @@ The prompt states exact life expectancies and worked illustrations, and every mo
 | `python3 timing_report.py ...` | The Bostrom tables and contour figures. |
 | `python3 my_results/build_readme.py` | Rebuilds the writeup section of `README.md` from `final_results.md` and copies its charts into `my_results/figures/`. |
 | `python3 my_results/build_blog_post.py` | Rebuilds the post on hansgundlach.github.io from `final_results.md`. You still need to commit and push that site. |
+| `python3 my_results/build_substack.py` | Copies the essay to the clipboard as HTML with the figures embedded, for pasting into a Substack draft. Also writes `my_results/substack_post.html`. |
 
 `outputs/` is gitignored, so charts only appear on GitHub after `build_readme.py` copies them into `my_results/figures/`.
 
@@ -199,7 +229,7 @@ python3 -c "import futureprefs.batch_run as b; print(b._http('GET', '/key'))"
 - **Batches can't be cancelled:** OpenRouter has no cancel endpoint, and a batch can only be deleted after it finishes. A batch you stop waiting for is still billed when it runs.
 - **A number-parsing bug, now fixed:** Before November 3, 2026, the number parser stripped zeros from whole numbers, so 20 was logged as 2. Five of Haiku's Bostrom answers and one stated answer were affected. The fix has a test, and the affected logs were re-parsed from the saved raw replies.
 - **Answers that go back and forth:** Some models switch back and forth along a grid. Haiku pauses at 1% growth, continues at 2% and 5%, then pauses again at 40%. The charts place the switch after the last grid point where both orders still chose the original option, and the writeup says when there is no stable switch.
-- **Label order matters a lot for some models:** Gemini's two orders disagree in 33 of 121 Bostrom cells.
+- **Label order matters a lot for some models:** In the archived two-order Bostrom analysis, Gemini's two orders disagreed in 33 of 121 cells.
 - **Resume ignores wording and effort:** A trial's id is built from the model, item, wording variant, grid value, label order, sample, temperature and tie setting. It doesn't include the prompt text or the reasoning effort. If you edit an item's wording or change `--reasoning-effort` and then `--resume` into an existing log, those trials are skipped as already done. Write to a new log instead. The seed also depends on `--run-id`.
 
 ## Outputs
@@ -215,7 +245,11 @@ python3 -c "import futureprefs.batch_run as b; print(b._http('GET', '/key'))"
 
 | Path | Contents |
 | --- | --- |
-| `items/*.yaml` | Every question: wording, grid, options, paraphrases and reference formulas. |
+| `prompts/` | Every system prompt and frame, the Bostrom timing wording and the Davidson sweep scenarios. Edit wording here. See `prompts/README.md`. |
+| `prompts/questions.yaml` | Editable wording, options, causes and grids for the 26 catalog questions in the writeup. |
+| `prompts/_experiment_settings.yaml` | Internal scoring rules and legacy wording variants, separated from the editable questions. |
+| `preview_prompts.py`, `prompts/PREVIEW.md` | Offline preview command and generated examples of the actual model messages. |
+| `items/*.yaml` | The rest of the benchmark's questions. |
 | `run_eval.py`, `futureprefs/runner.py` | The main runner, for grid search and binary search. |
 | `futureprefs/adapters.py`, `futureprefs/parsing.py` | API calls, usage logging, and reply parsing. |
 | `futureprefs/ft_sweep.py` | The Davidson stake sweeps. |

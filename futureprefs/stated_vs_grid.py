@@ -6,7 +6,7 @@ grid point is drawn at the split with the whisker back to the previous grid poin
 The whisker is grid resolution, not a sampling interval.
 
 The stated marker is one call at temperature 0 that asks for the number directly
-(items/stated.yaml). It has no whisker because it is a single answer.
+(prompts/questions.yaml). It has no whisker because it is a single answer.
 """
 
 from __future__ import annotations

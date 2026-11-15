@@ -33,6 +33,12 @@ WAIT_CMAP = ListedColormap(FILL_COLORS)
 WAIT_NORM = BoundaryNorm(FILL_LEVELS, WAIT_CMAP.N)
 
 
+# The study asks each cell once, with the illustrated waits listed shortest first ("ab"), and uses
+# that answer. Set to None to pool the two orders and test their agreement, as the original
+# two-order analysis did (timing_report.py --both-orders).
+SINGLE_ORDER: str | None = "ab"
+
+
 def write_timing_report(log_path: Path, out_dir: Path) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     frame = _cells(log_path)
@@ -81,7 +87,14 @@ def _cells(log_path: Path) -> pd.DataFrame:
             chosen = parsed.iloc[-1] if not parsed.empty else order_rows.iloc[-1]
             by_order[order] = _parse_wait(chosen.get("stated_value")) if bool(chosen.get("parse_ok")) else ("missing", None)
             reasons[order] = chosen.get("reasoning")
-        pooled, inconsistent, use = _pool(by_order.get("ab", ("missing", None)), by_order.get("ba", ("missing", None)))
+        if SINGLE_ORDER:
+            # One answer per cell: a number is used as is, "never" is marked, and a missing reply stays missing.
+            answer = by_order.get(SINGLE_ORDER, ("missing", None))
+            by_order = {"ab": answer, "ba": answer}
+            reasons = {"ab": reasons.get(SINGLE_ORDER), "ba": None}
+            pooled, inconsistent, use = _years(answer), False, answer[0] == "years"
+        else:
+            pooled, inconsistent, use = _pool(by_order.get("ab", ("missing", None)), by_order.get("ba", ("missing", None)))
         bostrom = optimal_wait(float(p0), float(g))
         rows.append(
             {
@@ -423,8 +436,12 @@ def write_multi_model_figure(log_paths: list[Path], path: Path) -> Path:
                 observed["pooled_years"].to_numpy(),
             )
         _decision_markers(axis, frame)
-        disagreed = int(frame["inconsistent"].sum())
-        axis.set_title(f"{_model_name(frame)}\nOrders disagreed in {disagreed} of {len(frame)} cells", loc="left", fontsize=11)
+        if SINGLE_ORDER:
+            missing = int((frame["ab"] == "missing").sum())
+            note = f"One answer per cell, {missing} missing" if missing else "One answer per cell"
+        else:
+            note = f"Orders disagreed in {int(frame['inconsistent'].sum())} of {len(frame)} cells"
+        axis.set_title(f"{_model_name(frame)}\n{note}", loc="left", fontsize=11)
     used = len(frames) + 1
     for axis in flat[used:]:
         axis.set_visible(False)
@@ -449,8 +466,9 @@ def write_multi_model_figure(log_paths: list[Path], path: Path) -> Path:
     rename = {
         "Table 3 decision": "Grid cell asked (Bostrom's Table 3)",
         "Supplemental decision": "Extra grid cell",
-        "Never deploy": "Both orders said never",
+        "Never deploy": "Said never deploy" if SINGLE_ORDER else "Both orders said never",
         "Orders disagreed": "The two orders disagreed",
+        "Missing": "Missing: no usable answer",
     }
     legend = fig.legend(handles, [rename.get(label, label) for label in labels], loc="lower center", ncol=4, frameon=False, bbox_to_anchor=(0.48, 0.0))
     polish_legend(legend)
@@ -547,6 +565,10 @@ def _decision_markers(axis, frame: pd.DataFrame) -> None:
             label="Never deploy",
             zorder=5,
         )
+    missing = frame[(frame["ab"] == "missing") & (frame["ba"] == "missing")]
+    if not missing.empty:
+        axis.scatter(missing["p0"] * 100, missing["g"] * 100, s=40, c="#888888", marker="x", linewidths=1.2,
+                     label="Missing", zorder=6)
     if not inconsistent.empty:
         axis.scatter(
             inconsistent["p0"] * 100,

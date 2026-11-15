@@ -15,7 +15,12 @@ def main() -> None:
     parser.add_argument("--logs", required=True, nargs="+", help="One log for a report, or several with --figure.")
     parser.add_argument("--out", help="Report directory for a single log.")
     parser.add_argument("--figure", help="Write Bostrom beside every model in --logs to this PNG instead.")
+    parser.add_argument("--both-orders", action="store_true",
+                        help="Pool the two orders of illustrated waits and test agreement (the original analysis).")
     args = parser.parse_args()
+    if args.both_orders:
+        import futureprefs.timing_report as report
+        report.SINGLE_ORDER = None
     root = project_root()
     if args.figure:
         paths = [Path(log) if Path(log).is_absolute() else root / log for log in args.logs]

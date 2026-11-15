@@ -264,8 +264,12 @@ def test_bostrom_closed_form_matches_table3_and_stays_out_of_the_prompt():
         assert whole.parse_ok and whole.stated_value == expected
 
 
-def test_timing_report_keeps_disagreements_out_of_the_contour(tmp_path: Path):
+def test_timing_report_keeps_disagreements_out_of_the_contour(tmp_path: Path, monkeypatch):
+    """The archived two-order analysis (timing_report.py --both-orders)."""
+    import futureprefs.timing_report as report
     from futureprefs.timing_report import write_timing_report
+
+    monkeypatch.setattr(report, "SINGLE_ORDER", None)
 
     def row(p0, g, order, value, role="table3"):
         return {
@@ -308,3 +312,33 @@ def test_timing_report_keeps_disagreements_out_of_the_contour(tmp_path: Path):
     assert not bool(agreed.inconsistent) and bool(agreed.use_in_contour)
     assert (out / "contour_model.png").stat().st_size > 1000
     assert (out / "contour_bostrom.png").stat().st_size > 1000
+
+
+def test_timing_report_uses_one_answer_per_cell(tmp_path: Path):
+    """The study's default: the shortest-first answer is used as is; missing stays missing."""
+    from futureprefs.timing_report import write_timing_report
+
+    def row(p0, g, order, value, parse_ok=True, role="table3"):
+        return {"kind": "timing", "model_id": "mock", "p0": p0, "g": g, "order": order, "parse_ok": parse_ok,
+                "stated_value": value, "cell_role": role, "reasoning": "synthetic"}
+
+    log = tmp_path / "trials.jsonl"
+    records = [
+        row(0.50, 0.10, "ab", "1"),
+        row(0.50, 0.10, "ba", "20"),          # a second order, if present, is ignored
+        row(0.99, 0.0, "ab", "never"),
+        row(0.30, 0.30, "ab", None, parse_ok=False),
+        row(0.01, 0.0, "ab", "0"),
+        row(0.20, 0.50, "ab", "2", role="supplemental"),
+        row(0.80, 0.01, "ab", "10", role="supplemental"),
+    ]
+    log.write_text("".join(json.dumps(record) + "\n" for record in records))
+    out = tmp_path / "report"
+    write_timing_report(log, out)
+    cells = pd.read_csv(out / "cells.csv")
+    one = cells[(cells.p0 == 0.5) & (cells.g == 0.1)].iloc[0]
+    assert one.pooled_years == 1 and bool(one.use_in_contour) and not bool(one.inconsistent)
+    never = cells[(cells.p0 == 0.99) & (cells.g == 0)].iloc[0]
+    assert never.ab == "never" and not bool(never.use_in_contour)
+    missing = cells[(cells.p0 == 0.3) & (cells.g == 0.3)].iloc[0]
+    assert missing.ab == "missing" and not bool(missing.use_in_contour)

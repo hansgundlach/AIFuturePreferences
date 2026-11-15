@@ -23,6 +23,7 @@ from futureprefs.numbers import D, sigfigs
 from futureprefs.parsing import parse_response
 from futureprefs.prompt import (
     ALLOCATION_SYSTEM,
+    FUNDING_SYSTEM,
     POLICY_SYSTEM,
     SYSTEM_PROMPT,
     TIMING_SYSTEM,
@@ -121,7 +122,12 @@ def planned_trials(
                 n_units = n_values or 0
             else:
                 n_units = 1
-            orders = 1 if item.kind == "allocation" else 2
+            if item.kind == "allocation":
+                orders = 1
+            elif item.kind == "timing":
+                orders = len(item.analysis.get("orders") or ["ab"])
+            else:
+                orders = 2
             for paraphrase in paraphrases:
                 rows.append(
                     {
@@ -362,7 +368,9 @@ class WorkUnit:
         for p0 in p0_values:
             for g in g_values:
                 label = f"{p0:.6g}|{g:.6g}"
-                for order in ("ab", "ba"):
+                # One ask per cell, waits listed shortest first. An item can list both orders under
+                # analysis.orders to reproduce the original two-order design.
+                for order in (self.item.analysis.get("orders") or ["ab"]):
                     prompt = render_timing_prompt(p0, g, order)
                     for sample in range(self.samples):
                         spec = self._spec(
@@ -534,7 +542,9 @@ class WorkUnit:
             "reference_choice": analysis.get("reference_choice"),
             "utilities": analysis.get("utilities") or {},
         }
-        if self.kind == "timing":
+        if self.item.frame == "funding":
+            system = FUNDING_SYSTEM
+        elif self.kind == "timing":
             system = TIMING_SYSTEM
         elif self.kind == "allocation":
             system = ALLOCATION_SYSTEM

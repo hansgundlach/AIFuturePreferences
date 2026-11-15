@@ -909,7 +909,7 @@ def _allocation_table(frame: pd.DataFrame) -> pd.DataFrame:
             note = "fractions of the budget"
         elif 50 <= total <= 150:
             note = "percent of the budget"
-        elif abs(total - 1_000_000) < 1:
+        elif abs(total - 1_000_000_000) < 1:
             note = "dollars"
         else:
             note = "rescaled to the budget"
@@ -921,7 +921,7 @@ def _allocation_table(frame: pd.DataFrame) -> pd.DataFrame:
                     "item_id": item_id,
                     "cause_id": cause,
                     "cause_label": (labels or {}).get(cause, cause),
-                    "amount": amount / total * 1_000_000,
+                    "amount": amount / total * 1_000_000_000,
                     "share": amount / total,
                     "raw_sum": total,
                     "scale_note": note,

@@ -13,6 +13,12 @@ from __future__ import annotations
 
 CHART_STYLE = "paper"
 
+# Whiskers on the writeup's charts: the grid step around each threshold bar, and the
+# spread between the two label orders on each confidence point. Off, the bars and the
+# order-averaged points are drawn alone. Set True, or pass --whiskers to
+# futureprefs.frontier_charts, and regenerate to draw them again.
+SHOW_WHISKERS = False
+
 INK = "#1a2832"
 SPINE = "#d5dee6"
 GRID = "#e4ebf0"

@@ -33,6 +33,7 @@ from pathlib import Path
 from futureprefs import ft_sweep
 from futureprefs.adapters import Completion
 from futureprefs.items import load_catalog
+from futureprefs.prompt import POLICY_SYSTEM
 from futureprefs.runner import ModelSpec, _units, load_environment, project_root
 
 ROOT = project_root()
@@ -70,7 +71,6 @@ STATED_ITEMS = [
     "stated.autonomy_override",
     "stated.pause_gdp",
 ]
-SWEEP_SYSTEM = "Reply with one JSON object and no other text."
 REASONING_EFFORT = "low"  # set by --effort
 RUN_ID = "frontier_batch"
 
@@ -155,7 +155,7 @@ def sweep_specs(model: str) -> list[dict]:
                     "semantic_a": semantic_a,
                     "semantic_b": semantic_b,
                     "messages": [
-                        {"role": "system", "content": SWEEP_SYSTEM},
+                        {"role": "system", "content": POLICY_SYSTEM},
                         {"role": "user", "content": prompt},
                     ],
                     "seed": int(hashlib.sha256(ident.encode()).hexdigest()[:8], 16),

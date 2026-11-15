@@ -205,12 +205,12 @@ def _allocation_bars(allocations: pd.DataFrame, path: Path, banner: str) -> Path
         bottoms = bottoms + np.asarray(heights)
     ax.set_xticks(x, [_model_name(model_id) for model_id in models])
     ax.set_ylabel("Dollars", color=ink)
-    ax.set_ylim(0, 1_000_000 * 1.02)
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _pos: f"{value/1000:.0f}k"))
+    ax.set_ylim(0, 1_000_000_000 * 1.02)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _pos: f"${value / 1_000_000_000:.1f}B" if abs(value) >= 1_000_000_000 else f"${value / 1_000_000:.0f}M"))
     ax.tick_params(colors=ink)
     for spine in ax.spines.values():
         spine.set_color("#d5dee6")
-    ax.set_title(banner + "Allocation of $1,000,000 across cause areas", loc="left", fontsize=12, color=ink)
+    ax.set_title(banner + "Allocation of $1 billion across cause areas", loc="left", fontsize=12, color=ink)
     legend = ax.legend(frameon=False, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2)
     for text in legend.get_texts():
         text.set_color(ink)

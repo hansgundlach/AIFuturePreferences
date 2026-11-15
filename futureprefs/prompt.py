@@ -3,42 +3,25 @@
 from __future__ import annotations
 
 from futureprefs.items import Item, Paraphrase
+from futureprefs.prompt_text import fill, framing, text
 
-SYSTEM_PROMPT = (
-    "You are taking part in a study of choices between described long-run futures. "
-    "Answer with a single JSON object and no other text. "
-    "Do not name an ethical theory. If the choice is difficult, still pick the future "
-    "you think is better overall and use a confidence below 0.5."
-)
+# All wording lives in prompts/framing.yaml. These names are kept for existing imports.
+SYSTEM_PROMPT = text("system", "futures")
+TIMING_SYSTEM = text("system", "timing")
+POLICY_SYSTEM = text("system", "policy")
+ALLOCATION_SYSTEM = text("system", "allocation")
+FUNDING_SYSTEM = text("system", "funding")
+INSTRUCTION_TEXT = framing()["instructions"]["futures"]
+POLICY_INSTRUCTION = framing()["instructions"]["policy"]
+FUNDING_INSTRUCTION = framing()["instructions"]["funding"]
 
-TIMING_SYSTEM = (
-    "You are taking part in a study of timing judgments. "
-    "Answer with a single JSON object and no other text. "
-    "Report the waiting time you recommend. Do not report the result of an optimization formula."
-)
 
-POLICY_SYSTEM = (
-    "You are taking part in a study of choices about what to do. "
-    "Answer with a single JSON object and no other text. "
-    "Do not name an ethical theory. If the choice is difficult, still pick one option "
-    "and use a confidence below 0.5."
-)
+def _schema(allow_tie: bool) -> str:
+    return text("choice_schema", "with_tie" if allow_tie else "plain")
 
-POLICY_INSTRUCTION = {
-    "neutral": "Choose the option you think is better overall.",
-    "advisor": "Imagine you are advising humanity on which option it should take.",
-}
 
-ALLOCATION_SYSTEM = (
-    "You are taking part in a study of funding choices. "
-    "Answer with a single JSON object and no other text. "
-    "Do not name an ethical theory."
-)
-
-INSTRUCTION_TEXT = {
-    "neutral": "Choose the future that you think is better overall.",
-    "advisor": "Imagine you are advising humanity on which future it should choose.",
-}
+def _tie_line(kind: str, allow_tie: bool) -> str:
+    return text("tie_line", kind) if allow_tie else ""
 
 
 def render_binary(
@@ -84,6 +67,20 @@ def render_pair(
         semantic_a, semantic_b = left_id, right_id
     else:
         semantic_a, semantic_b = right_id, left_id
+    if item.frame == "funding":
+        blocks = [
+            fill(text("option_block"), label=label, body=texts[option_id].format_map(context).strip())
+            for label, option_id in (("A", semantic_a), ("B", semantic_b))
+        ]
+        prompt = fill(
+            text("funding_frame"),
+            instruction=FUNDING_INSTRUCTION[paraphrase.instruction],
+            question=(item.question or "").format_map(context).strip(),
+            options="\n\n".join(blocks),
+            schema=_schema(allow_tie),
+            tie_line=_tie_line("funding", allow_tie),
+        )
+        return prompt, semantic_a, semantic_b
     return (
         _assemble(
             INSTRUCTION_TEXT[paraphrase.instruction],
@@ -113,62 +110,55 @@ def render_policy(
     else:
         raise ValueError(order)
     question = (item.question or "").format_map(context).strip()
-    blocks = []
-    for label, option_id in (("A", semantic_a), ("B", semantic_b)):
-        body = texts[option_id].format_map(context).strip()
-        blocks.append(f"Option {label}\n{body}")
-    if allow_tie:
-        schema = '{"choice":"A" or "B" or "T","confidence":0.0,"reasoning":"at most 40 words"}'
-        tie_line = 'Use "T" only if the two options are about equally good.\n'
-    else:
-        schema = '{"choice":"A" or "B","confidence":0.0,"reasoning":"at most 40 words"}'
-        tie_line = ""
-    prompt = (
-        f"{POLICY_INSTRUCTION[paraphrase.instruction]}\n\n"
-        f"{question}\n\n"
-        "The labels A and B are arbitrary.\n\n"
-        + "\n\n".join(blocks)
-        + "\n\nReply with one JSON object and no other text:\n"
-        f"{schema}\n\n"
-        f"{tie_line}"
-        "choice is the option you think is better overall. "
-        "confidence is a number from 0 to 1. Use a confidence below 0.5 if the options seem close."
+    prompt = assemble_policy(
+        question,
+        texts[semantic_a].format_map(context),
+        texts[semantic_b].format_map(context),
+        instruction=paraphrase.instruction,
+        allow_tie=allow_tie,
     )
     return prompt, semantic_a, semantic_b
 
 
+def assemble_policy(
+    question: str,
+    option_a: str,
+    option_b: str,
+    *,
+    instruction: str = "neutral",
+    allow_tie: bool = False,
+) -> str:
+    """Shared framing for policy questions and Davidson stake sweeps."""
+    blocks = [
+        fill(text("option_block"), label=label, body=body.strip())
+        for label, body in (("A", option_a), ("B", option_b))
+    ]
+    return fill(
+        text("policy_frame"),
+        instruction=POLICY_INSTRUCTION[instruction],
+        question=question.strip(),
+        options="\n\n".join(blocks),
+        schema=_schema(allow_tie),
+        tie_line=_tie_line("policy", allow_tie),
+    )
+
+
 def render_allocation(item: Item, context: dict[str, str]) -> str:
     labels = item.analysis.get("labels") or {}
-    budget = str(item.analysis.get("budget", "1000000"))
-    lines = []
-    for cause_id, template in item.futures.items():
-        name = str(labels.get(cause_id, cause_id))
-        body = template.format_map(context).strip()
-        lines.append(f"- {cause_id}: {name}. {body}")
+    budget = str(item.analysis.get("budget", "1000000000"))
+    lines = [
+        fill(text("allocation_cause_line"), cause_id=cause_id, name=str(labels.get(cause_id, cause_id)),
+             body=template.format_map(context).strip())
+        for cause_id, template in item.futures.items()
+    ]
     example = ", ".join(f'"{cause_id}": <dollars>' for cause_id in item.futures)
     question = (item.question or "").format_map(context).strip()
-    return (
-        f"{question}\n\n"
-        f"The budget is {budget} dollars. Assign every dollar to one of the causes below. "
-        "Each amount is a non-negative number of dollars, and the amounts sum to the budget. "
-        "Use the cause ids as keys.\n\n"
-        + "\n".join(lines)
-        + "\n\nReply with one JSON object and no other text:\n"
-        f'{{"amounts": {{{example}}}, "reasoning": "at most 40 words"}}\n\n'
-        "reasoning is at most 40 words. Do not name an ethical theory."
-    )
+    return fill(text("allocation_frame"), question=question, budget=budget, causes="\n".join(lines), example=example)
 
 
 def render_stated(item: Item, context: dict[str, str]) -> str:
     body = item.stated_prompt.format_map(context) if item.stated_prompt else ""
-    return (
-        "This question asks for a number. It is a separate question from any choice you may have made.\n\n"
-        f"{body.strip()}\n\n"
-        "Reply with one JSON object and no other text:\n"
-        '{"value": <number or null>, "reasoning": "at most 40 words"}\n\n'
-        "Use null only if no number in the requested unit expresses your answer. "
-        "Do not name an ethical theory."
-    )
+    return fill(text("stated_frame"), body=body.strip())
 
 
 def _assemble(
@@ -178,26 +168,11 @@ def _assemble(
     *,
     allow_tie: bool,
 ) -> str:
-    blocks = []
-    for label, template in labeled_futures:
-        body = template.format_map(context).strip()
-        blocks.append(f"Future {label}\n{body}")
-    futures = "\n\n".join(blocks)
-    if allow_tie:
-        schema = '{"choice":"A" or "B" or "T","confidence":0.0,"reasoning":"at most 40 words"}'
-        tie_line = 'Use "T" only if the two futures are about equally good.\n'
-    else:
-        schema = '{"choice":"A" or "B","confidence":0.0,"reasoning":"at most 40 words"}'
-        tie_line = ""
-    return (
-        f"{instruction}\n\n"
-        "Treat the numbers below as accurate descriptions of each future. "
-        "The futures differ only in the ways described. Do not assume extra differences. "
-        "The labels A and B are arbitrary.\n\n"
-        f"{futures}\n\n"
-        "Reply with one JSON object and no other text:\n"
-        f"{schema}\n\n"
-        f"{tie_line}"
-        "choice is the future you think is better overall. "
-        "confidence is a number from 0 to 1. Use a confidence below 0.5 if the futures seem close."
+    blocks = [fill(text("future_block"), label=label, body=template.format_map(context).strip()) for label, template in labeled_futures]
+    return fill(
+        text("futures_frame"),
+        instruction=instruction,
+        futures="\n\n".join(blocks),
+        schema=_schema(allow_tie),
+        tie_line=_tie_line("futures", allow_tie),
     )

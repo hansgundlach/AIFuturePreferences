@@ -104,7 +104,9 @@ class OpenAICompatibleAdapter:
             kwargs["temperature"] = temperature
         if seed is not None:
             kwargs["seed"] = seed
-        kwargs["response_format"] = {"type": "json_object"}
+        if extra.get("json", True):
+            # Off for prompts that ask for prose and a final ANSWER line (prompts/open_questions.yaml).
+            kwargs["response_format"] = {"type": "json_object"}
         extra_body: dict = {}
         if extra.get("reasoning_effort"):
             extra_body["reasoning"] = {"effort": extra["reasoning_effort"]}
@@ -171,7 +173,7 @@ def _mock_amounts(meta: dict, policy: str) -> dict[str, int]:
         causes = list(reversed(causes))
     weights = list(range(len(causes), 0, -1))
     total = sum(weights) or 1
-    budget = 1_000_000
+    budget = int(meta.get("budget") or 1_000_000_000)
     running = 0
     amounts: dict[str, int] = {}
     for index, cause_id in enumerate(causes):
